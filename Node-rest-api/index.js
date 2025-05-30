@@ -11,6 +11,7 @@ const multer = require("multer");
 const path = require("path");
 const messageRoute = require("./routes/message");
 const conversationRoute = require("./routes/conversation");
+require('dotenv').config();
 
 app.use(cors({
   origin: '*',
@@ -18,7 +19,7 @@ app.use(cors({
 }));
 
 mongoose.connect(
-  "mongodb+srv://ayushsharma06:passMongodb@cluster1.8ysp1.mongodb.net/?retryWrites=true&w=majority&appName=Cluster1"
+  process.env.MONGO_URL
 );
 
 const User = require("./models/userMode");
