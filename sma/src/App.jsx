@@ -1,0 +1,35 @@
+import LoginPage from "./components/LoginPage";
+import Register from "./components/Register";
+import { useNavigate } from "react-router";
+import { BrowserRouter, Routes, Route } from "react-router";
+import Home from "./components/Home";
+import Profile from "./components/Profile";
+import RightBar from "./components/RightBar";
+import MainLayout from "./Layouts/MainLayout";
+import Chat from "./components/Chat";
+import { useContext } from "react";
+import { useSelector } from "react-redux";
+import Find from "./components/Find";
+import News from "./components/News";
+
+function App() {
+
+  const user = useSelector((state) => state.user);
+
+  return (
+    <>
+      <Routes>
+        <Route path="/" element={user?<Home/>:<Register/>}> </Route>
+        <Route path="/profile/:username" element={<Profile />} />
+        <Route path="/login" element={user? <Home/> :<LoginPage/>}></Route>
+        <Route path="/register" element={<Register/>}></Route>
+        <Route path="/chat" element={<Chat/>}></Route>
+        <Route path="/find" element={<Find/>}></Route>
+        <Route path="/news" element={<News/>}></Route>
+      </Routes>
+    </>
+  );
+}
+
+export default App;
+
