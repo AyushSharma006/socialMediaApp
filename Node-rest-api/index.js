@@ -1,34 +1,63 @@
 const express = require("express");
-const app = express();
+const { exec } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const { v4: uuidv4 } = require("uuid");
 const mongoose = require("mongoose");
 const helmet = require("helmet");
 const morgan = require("morgan");
+const cors = require("cors");
+const multer = require("multer");
+
+// Import routes
 const userRoute = require("./routes/users");
 const authRoute = require("./routes/auth");
 const PostRout = require("./routes/posts");
-const cors = require("cors");
-const multer = require("multer");
-const path = require("path");
 const messageRoute = require("./routes/message");
 const conversationRoute = require("./routes/conversation");
-require('dotenv').config();
 
-app.use(cors({
-  origin: '*',
-  credentials: true,
-}));
+// Import models
+const User = require("./models/userMode");
 
-mongoose.connect(
-  process.env.MONGO_URL
+require("dotenv").config();
+
+const app = express();
+
+// CORS Configuration
+app.use(
+  cors({
+    origin: "*",
+    credentials: true,
+  })
 );
 
-const User = require("./models/userMode");
-const { createBrotliCompress } = require("zlib");
+// Database Connection
+mongoose.connect(process.env.MONGO_URL, {
+  dbName: "Learnify",
+});
+
+// Middleware
 app.use(express.json());
 app.use(helmet());
 app.use(morgan("common"));
 app.use("/images", express.static(path.join(__dirname, "public/images")));
 
+// Create temp directory for code compilation
+const tempDir = path.join(__dirname, "temp");
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir);
+}
+
+// Create public/images directory if it doesn't exist
+const imagesDir = path.join(__dirname, "public/images");
+if (!fs.existsSync(path.join(__dirname, "public"))) {
+  fs.mkdirSync(path.join(__dirname, "public"));
+}
+if (!fs.existsSync(imagesDir)) {
+  fs.mkdirSync(imagesDir);
+}
+
+// Multer configuration for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "public/images");
@@ -41,25 +70,192 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+// File upload endpoint
 app.post("/api/uploads", upload.single("file"), (req, res) => {
   try {
-    const uploadedFileName = req.file.filename; // Send filename to frontend
-    return res.status(200).json(uploadedFileName);
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+    const uploadedFileName = req.file.filename;
+    return res.status(200).json({ filename: uploadedFileName });
   } catch (error) {
-    console.log(error);
-    return res.status(500).json("Upload failed");
+    console.log("Upload error:", error);
+    return res.status(500).json({ error: "Upload failed" });
   }
 });
 
+// Code compilation endpoint
+app.post("/api/compile", async (req, res) => {
+  try {
+    const { code, language, input = "" } = req.body;
+
+    if (!code || !language) {
+      return res.status(400).json({ error: "Code and language are required" });
+    }
+
+    const id = uuidv4();
+    const codeFileMap = {
+      c: "Main.c",
+      cpp: "Main.cpp",
+      java: "Main.java",
+      python: "main.py",
+    };
+    const fileName = codeFileMap[language];
+    if (!fileName) {
+      return res.status(400).json({ error: "Unsupported language" });
+    }
+
+    const runCommandMap = {
+      c: `gcc ${codeFileMap.c} -o out && ./out`,
+      cpp: `g++ ${codeFileMap.cpp} -o out && ./out`,
+      java: `javac ${codeFileMap.java} && java Main`,
+      python: `python3 ${codeFileMap.python}`,
+    };
+    const runCommand = runCommandMap[language];
+
+    const dockerImageMap = {
+      c: "my-c-runner",
+      cpp: "my-cpp-runner",
+      java: "my-java-runner",
+      python: "my-python-runner",
+    };
+    const dockerImage = dockerImageMap[language];
+
+    const workDir = path.join(tempDir, id);
+    fs.mkdirSync(workDir, { recursive: true });
+
+    // Write code
+    fs.writeFileSync(path.join(workDir, fileName), code);
+
+    // Write input file (for stdin)
+    const inputPath = path.join(workDir, "input.txt");
+    fs.writeFileSync(inputPath, input);
+
+    // Shell script to compile and run with redirected input
+    const runShPath = path.join(workDir, "run.sh");
+    const finalCommand = `${runCommand} < input.txt`;
+
+    fs.writeFileSync(runShPath, `#!/bin/sh\n${finalCommand}\n`);
+    fs.chmodSync(runShPath, "755");
+
+    if (!dockerImage) {
+      fs.rmSync(workDir, { recursive: true, force: true });
+      return res.status(400).json({ error: "Unsupported language" });
+    }
+
+    // Docker exec
+    exec(
+      `docker run --rm -v ${workDir}:/app -w /app ${dockerImage}`,
+      { timeout: 10000 },
+      (runErr, stdout, stderr) => {
+        fs.rmSync(workDir, { recursive: true, force: true });
+
+        if (runErr) {
+          if (runErr.signal === "SIGTERM") {
+            return res.json({
+              output: "Error: Code execution timed out (10 seconds limit)",
+              error: true,
+            });
+          }
+          return res.json({
+            output: stderr || runErr.message,
+            error: true,
+          });
+        }
+
+        res.json({
+          output: stdout || "Code executed successfully (no output)",
+          error: false,
+        });
+      }
+    );
+  } catch (error) {
+    console.error("Compilation error:", error);
+    res.status(500).json({
+      error: "Internal server error during compilation",
+      details: error.message,
+    });
+  }
+});
+
+
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    services: {
+      database:
+        mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+      compiler: fs.existsSync(tempDir) ? "ready" : "not ready",
+    },
+  });
+});
+
+// Social media routes
 app.use("/api/users", userRoute);
 app.use("/api/auth", authRoute);
 app.use("/api/posts", PostRout);
 app.use("/api/conversations", conversationRoute);
 app.use("/api/messages", messageRoute);
 
+// Root endpoint
 app.get("/", (req, res) => {
-  res.send("welcome to homepage");
+  res.json({
+    message: "Welcome to Learnify API",
+    version: "1.0.0",
+    endpoints: {
+      social: [
+        "/api/users",
+        "/api/auth",
+        "/api/posts",
+        "/api/conversations",
+        "/api/messages",
+      ],
+      compiler: ["/api/compile"],
+      utilities: ["/api/uploads", "/api/health"],
+    },
+  });
 });
 
-app.listen(8000, () => {});
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({
+    error: "Internal server error",
+    message: process.env.NODE_ENV === "development" ? err.message : undefined,
+  });
+});
 
+// 404 handler
+app.use("*", (req, res) => {
+  res.status(404).json({ error: "Route not found" });
+});
+
+// Graceful shutdown
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received. Cleaning up...");
+  // Clean up temp directory
+  if (fs.existsSync(tempDir)) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+  process.exit(0);
+});
+
+process.on("SIGINT", () => {
+  console.log("SIGINT received. Cleaning up...");
+  // Clean up temp directory
+  if (fs.existsSync(tempDir)) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+  process.exit(0);
+});
+
+const PORT = process.env.PORT || 8000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`💻 Compiler API: http://localhost:${PORT}/api/compile`);
+  console.log(`📱 Social API: http://localhost:${PORT}/api/*`);
+});
