@@ -11,6 +11,7 @@ import { useContext } from "react";
 import { useSelector } from "react-redux";
 import Find from "./components/Find";
 import News from "./components/News";
+import Editor from "./components/editor";
 
 function App() {
 
@@ -26,6 +27,7 @@ function App() {
         <Route path="/chat" element={<Chat/>}></Route>
         <Route path="/find" element={<Find/>}></Route>
         <Route path="/news" element={<News/>}></Route>
+        <Route path="/editor" element={<Editor/>}></Route>
       </Routes>
     </>
   );
