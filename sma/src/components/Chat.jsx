@@ -15,7 +15,7 @@ function Chat() {
 
 useEffect(() => {
   if (!user || !user._id) {
-    navigate("/login"); // assuming your login page is at /login
+    navigate("/login");
   }
 }, [user, navigate]);
 
