@@ -27,10 +27,13 @@ function SlideBar() {
             <IoChatboxEllipsesOutline className="text-xl" />
             <span className="font-semibold text-base">Chat</span>
           </Link>
-          <li className="flex flex-row gap-3 items-center font-extrabold cursor-pointer hover:bg-slate-50 p-2 rounded-lg">
-            <MdGroups className="text-xl" />
-            <span className="font-semibold text-base">Groups</span>
-          </li>
+          <Link to={"/group"}>
+            <li className="flex flex-row gap-3 items-center font-extrabold cursor-pointer hover:bg-slate-50 p-2 rounded-lg">
+              <MdGroups className="text-xl" />
+              <span className="font-semibold text-base">Groups</span>
+            </li>
+          </Link>
+
           <li className="flex flex-row gap-3 items-center font-extrabold cursor-pointer hover:bg-slate-50 p-2 rounded-lg">
             <IoBookmarks className="text-xl" />
             <span className="font-semibold text-base">Bookmarks</span>

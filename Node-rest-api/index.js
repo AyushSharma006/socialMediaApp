@@ -8,6 +8,8 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const cors = require("cors");
 const multer = require("multer");
+const http = require("http");
+const { Server } = require("socket.io");
 
 // Import routes
 const userRoute = require("./routes/users");
@@ -15,13 +17,24 @@ const authRoute = require("./routes/auth");
 const PostRout = require("./routes/posts");
 const messageRoute = require("./routes/message");
 const conversationRoute = require("./routes/conversation");
+const groupRoute = require("./routes/groups");
 
 // Import models
 const User = require("./models/userMode");
+const ChatMessage = require("./models/chatModel");
 
 require("dotenv").config();
 
 const app = express();
+
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    credentials: true,
+  },
+});
 
 // CORS Configuration
 app.use(
@@ -31,7 +44,6 @@ app.use(
   })
 );
 
-// Database Connection
 mongoose.connect(process.env.MONGO_URL, {
   dbName: "Learnify",
 });
@@ -42,7 +54,42 @@ app.use(helmet());
 app.use(morgan("common"));
 app.use("/images", express.static(path.join(__dirname, "public/images")));
 
-// Create temp directory for code compilation
+io.on("connection", (socket) => {
+  console.log("✅ New user connected:", socket.id);
+
+  socket.on("joinGroup", (groupId) => {
+    socket.join(groupId);
+    console.log(`📢 Socket ${socket.id} joined group ${groupId}`);
+  });
+
+  socket.on("groupMessage", async ({ groupId, userId, text }) => {
+    if (!text?.trim()) return;
+
+    try {
+      const message = await ChatMessage.create({
+        group: groupId,
+        sender: userId,
+        text,
+        timestamp: new Date(),
+      });
+
+      io.to(groupId).emit("newMessage", {
+        _id: message._id,
+        groupId,
+        sender: userId,
+        text,
+        timestamp: message.timestamp,
+      });
+    } catch (err) {
+      console.error("❌ Message DB error:", err);
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log("❎ User disconnected:", socket.id);
+  });
+});
+
 const tempDir = path.join(__dirname, "temp");
 if (!fs.existsSync(tempDir)) {
   fs.mkdirSync(tempDir);
@@ -56,8 +103,6 @@ if (!fs.existsSync(path.join(__dirname, "public"))) {
 if (!fs.existsSync(imagesDir)) {
   fs.mkdirSync(imagesDir);
 }
-
-// Multer configuration for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "public/images");
@@ -70,7 +115,6 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// File upload endpoint
 app.post("/api/uploads", upload.single("file"), (req, res) => {
   try {
     if (!req.file) {
@@ -178,7 +222,6 @@ app.post("/api/compile", async (req, res) => {
   }
 });
 
-
 // Health check endpoint
 app.get("/api/health", (req, res) => {
   res.json({
@@ -198,8 +241,8 @@ app.use("/api/auth", authRoute);
 app.use("/api/posts", PostRout);
 app.use("/api/conversations", conversationRoute);
 app.use("/api/messages", messageRoute);
+app.use("/api/groups", groupRoute);
 
-// Root endpoint
 app.get("/", (req, res) => {
   res.json({
     message: "Welcome to Learnify API",
@@ -253,9 +296,10 @@ process.on("SIGINT", () => {
 
 const PORT = process.env.PORT || 8000;
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
   console.log(`💻 Compiler API: http://localhost:${PORT}/api/compile`);
   console.log(`📱 Social API: http://localhost:${PORT}/api/*`);
+  console.log(`📡 Socket.IO ready at ws://localhost:${PORT}`);
 });
